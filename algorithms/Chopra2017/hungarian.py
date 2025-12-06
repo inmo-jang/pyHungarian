@@ -1,9 +1,15 @@
+import os
+import sys
+
+# 프로젝트 루트 경로 추가
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.append(BASE_DIR)
+
 import numpy as np
 import random
 
 class Hungarian:
-    def __init__(self):
-        weights = self.create_weight_matrix()
+    def __init__(self, weights: np.ndarray, debug: bool = False):
         self.weights = weights
         self.r, self.p = weights.shape
         self.r_label = np.min(weights, axis=1)
@@ -15,16 +21,8 @@ class Hungarian:
         self.Vc = set()
         self.E_cand = set()
         self.delta = None
+        self.debug = debug
 
-    def create_weight_matrix(self):
-        weight_matrix = np.array([
-            [5, np.inf, np.inf, np.inf, np.inf],
-            [3, 7, 3, np.inf, np.inf],
-            [6, np.inf, 2, np.inf, 4],
-            [np.inf, np.inf, 5, 6, 2],
-            [np.inf, 4, np.inf, 1, 6]
-        ], dtype=float)
-        return weight_matrix
 
     def calculate_slack(self, i, j):
         slack = self.weights[i, j] - self.r_label[i] - self.p_label[j]
@@ -74,26 +72,26 @@ class Hungarian:
         self.build_equality_edges()
         
         # Create adjacency list for equality edges
-        adj = [[] for _ in range(5)]
+        adj = [[] for _ in range(self.r)]
         for r_idx, p_idx in self.Ey:
             adj[r_idx].append(p_idx)
         
         # Initialize matching arrays
-        match_r = [-1] * 5  # match_r[r] = p means row r is matched to column p
-        match_p = [-1] * 5  # match_p[p] = r means column p is matched to row r
+        match_r = [-1] * self.r  # match_r[r] = p means row r is matched to column p
+        match_p = [-1] * self.p  # match_p[p] = r means column p is matched to row r
         
         # Random row ordering for diversity
-        rows = list(range(5))
+        rows = list(range(self.r))
         random.shuffle(rows)
         
         # Find maximum matching using randomized row order
         for r_idx in rows:
-            visited = [False] * 5
+            visited = [False] * self.r
             self.bmp(r_idx, match_r, match_p, adj, visited)
         
         # Extract matching pairs
         matching = []
-        for r_idx in range(5):
+        for r_idx in range(self.r):
             if match_r[r_idx] != -1:
                 matching.append((r_idx, match_r[r_idx]))
         
@@ -103,7 +101,7 @@ class Hungarian:
         
         if vertex_cover_method == 'standard':
             # Standard: Start from unmatched rows, find alternating paths
-            unmatched_r = [r for r in range(5) if match_r[r] == -1]
+            unmatched_r = [r for r in range(self.r) if match_r[r] == -1]
             reachable_r = set()
             reachable_p = set()
             
@@ -121,12 +119,12 @@ class Hungarian:
                 dfs_from_unmatched_rows(r)
             
             # Vertex cover: unreachable rows + reachable columns
-            Rc = [r for r in range(5) if r not in reachable_r]
+            Rc = [r for r in range(self.r) if r not in reachable_r]
             Pc = list(reachable_p)
             
         else:  # alternative
             # Alternative: Start from unmatched columns, find alternating paths
-            unmatched_p = [p for p in range(5) if match_p[p] == -1]
+            unmatched_p = [p for p in range(self.p) if match_p[p] == -1]
             reachable_r = set()
             reachable_p = set()
             
@@ -134,7 +132,7 @@ class Hungarian:
                 if p in reachable_p:
                     return
                 reachable_p.add(p)
-                for r in range(5):
+                for r in range(self.r):
                     if p in adj[r] and r not in reachable_r:
                         reachable_r.add(r)
                         if match_r[r] != -1:
@@ -145,7 +143,7 @@ class Hungarian:
             
             # Vertex cover: reachable rows + unreachable columns
             Rc = list(reachable_r)
-            Pc = [p for p in range(5) if p not in reachable_p]
+            Pc = [p for p in range(self.p) if p not in reachable_p]
             Vc = set(Rc).union(set(Pc))
         
         # Update class attributes with the computed vertex cover
@@ -232,27 +230,29 @@ class Hungarian:
             
         return self.r_label, self.p_label
 
-    def solve_debug(self, max_iter=5):
+    def solve(self, max_iter=5):
         """
         Hungarian algorithm debug version with limited iterations
         """
         n = self.r
         iteration = 0
         
-        print("=== Hungarian Algorithm Debug (While Loop) ===")
-        print(f"Initial labels: r={self.r_label}, p={self.p_label}")
-        print()
+        if self.debug:
+            print("=== Hungarian Algorithm Debug (While Loop) ===")
+            print(f"Initial labels: r={self.r_label}, p={self.p_label}")
+            print()
         
         # 초기 Ey, Matching, Cover 계산 (while문 밖에서)
         self.build_equality_edges()
         matching, (Rc, Pc) = self.find_matching_and_cover(
             self.r_label, self.p_label
         )
-        
-        print("=== Initial State ===")
-        print(f"Initial equality edges: {self.Ey}")
-        print(f"Initial matching: {matching}, size={len(matching)}")
-        print(f"Initial vertex cover: Rc={list(self.Rc)}, Pc={list(self.Pc)}")
+
+        if self.debug:        
+            print("=== Initial State ===")
+            print(f"Initial equality edges: {self.Ey}")
+            print(f"Initial matching: {matching}, size={len(matching)}")
+            print(f"Initial vertex cover: Rc={list(self.Rc)}, Pc={list(self.Pc)}")
         
         # Perfect matching 초기 확인
         if len(matching) == n:
@@ -262,9 +262,10 @@ class Hungarian:
             
             total_cost = float(sum(self.weights[i, assignment[i]] for i in range(n)))
             
-            print(f"\nPerfect matching found immediately!")
-            print(f"Assignment: {assignment}")
-            print(f"Total cost: {total_cost}")
+            if self.debug:
+                print(f"\nPerfect matching found immediately!")
+                print(f"Assignment: {assignment}")
+                print(f"Total cost: {total_cost}")
             
             return assignment, total_cost, (self.r_label, self.p_label)
         
@@ -272,29 +273,31 @@ class Hungarian:
         while len(matching) < n and iteration < max_iter:
             iteration += 1
             
-            print(f"\n=== Iteration {iteration} ===")
-            print(f"Current labels: r={self.r_label}, p={self.p_label}")
+            if self.debug:
+                print(f"\n=== Iteration {iteration} ===")
+                print(f"Current labels: r={self.r_label}, p={self.p_label}")
             
             # 2. step_1_a를 이용하여 E_cand 생성
             self.step_1_a()
-            print(f"Candidate edges: {self.E_cand}")
+            print(f"Candidate edges: {self.E_cand}") if self.debug else None
             
             # 각 candidate edge의 slack 값 출력
             for i, j in self.E_cand:
                 slack = self.calculate_slack(i, j)
-                print(f"  Edge ({i},{j}): slack = {slack}")
+                print(f"  Edge ({i},{j}): slack = {slack}") if self.debug else None
             
             # 3. 생성된 E_cand를 이용하여 step_1_b 실행
             if len(self.E_cand) == 0:
-                print("No candidate edges found!")
+                print("No candidate edges found!") if self.debug else None
                 break
             
             delta = self.step_1_b()
-            print(f"Delta: {delta}")
-            print(f"Updated labels: r={self.r_label}, p={self.p_label}")
+            if self.debug:
+                print(f"Delta: {delta}")
+                print(f"Updated labels: r={self.r_label}, p={self.p_label}")
             
             if delta == 0:
-                print("Delta is 0 - potential infinite loop!")
+                print("Delta is 0 - potential infinite loop!") if self.debug else None
                 break
             
             # 4. update된 label을 이용하여 Ey 재생성하고, 재생성된 Ey를 기반으로 matching과 cover 생성
@@ -303,9 +306,10 @@ class Hungarian:
                 self.r_label, self.p_label
             )
             
-            print(f"Updated equality edges: {self.Ey}")
-            print(f"Updated matching: {matching}, size={len(matching)}")
-            print(f"Updated vertex cover: Rc={list(self.Rc)}, Pc={list(self.Pc)}")
+            if self.debug:
+                print(f"Updated equality edges: {self.Ey}")
+                print(f"Updated matching: {matching}, size={len(matching)}")
+                print(f"Updated vertex cover: Rc={list(self.Rc)}, Pc={list(self.Pc)}")
         
         # while문 종료 후 결과 처리
         if len(matching) == n:
@@ -315,20 +319,30 @@ class Hungarian:
             
             total_cost = float(sum(self.weights[i, assignment[i]] for i in range(n)))
             
-            print(f"\nPerfect matching found!")
-            print(f"Assignment: {assignment}")
-            print(f"Total cost: {total_cost}")
+            if self.debug:
+                print(f"\nPerfect matching found!")
+                print(f"Assignment: {assignment}")
+                print(f"Total cost: {total_cost}")
             
             return assignment, total_cost, (self.r_label, self.p_label)
         else:
-            print(f"\nStopped after {iteration} iterations without perfect matching")
+            print(f"\nStopped after {iteration} iterations without perfect matching") if self.debug else None
             return None, None, None
 
 # Test
 if __name__ == "__main__":
-    h = Hungarian()
-    print("Weight matrix:")
-    print(h.weights)
-    print()
-    
-    h.solve_debug(max_iter=10)
+    from test_cases.cases import HUNGARIAN_TEST_CASES
+
+    for case in HUNGARIAN_TEST_CASES:
+        print("=" * 60)
+        print(f"Test case: {case['name']}")
+        print(case["weights"])
+
+        h = Hungarian(case["weights"].copy(), debug=False)
+        assignment, total_cost, _ = h.solve(max_iter=20)
+
+        print(f"  → computed total cost: {total_cost}")
+        print(f"  → expected optimal cost: {case['optimal_cost']}")
+        if total_cost is not None:
+            print(f"  → diff: {total_cost - case['optimal_cost']}")
+
