@@ -1,8 +1,11 @@
 import os
 import sys
+import cProfile
+import pstats
+import io
 
 # 프로젝트 루트 경로 추가
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(BASE_DIR)
 
 import numpy as np
@@ -331,7 +334,11 @@ class Hungarian:
 
 # Test
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from test_cases.cases import HUNGARIAN_TEST_CASES
+
+    pr = cProfile.Profile()
+    pr.enable()
 
     for case in HUNGARIAN_TEST_CASES:
         print("=" * 60)
@@ -343,6 +350,11 @@ if __name__ == "__main__":
 
         print(f"  → computed total cost: {total_cost}")
         print(f"  → expected optimal cost: {case['optimal_cost']}")
-        if total_cost is not None:
+        if total_cost is not None and case['optimal_cost'] is not None:
             print(f"  → diff: {total_cost - case['optimal_cost']}")
 
+    pr.disable()
+    s = io.StringIO()
+    ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+    ps.print_stats(20)
+    print("\n" + s.getvalue())
